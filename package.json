@@ -1,0 +1,53 @@
+{
+  "name": "@printemps-tokyo/dnspeek",
+  "version": "0.1.0",
+  "description": "Diagnose a domain's email authentication (SPF / DKIM / DMARC) and key DNS records in plain language. Zero-dependency CLI.",
+  "type": "module",
+  "license": "MIT",
+  "author": "printemps.tokyo <develop@printemps.tokyo>",
+  "homepage": "https://github.com/printemps-tokyo/dnspeek#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/printemps-tokyo/dnspeek.git"
+  },
+  "bugs": {
+    "url": "https://github.com/printemps-tokyo/dnspeek/issues"
+  },
+  "keywords": [
+    "dns",
+    "spf",
+    "dkim",
+    "dmarc",
+    "email",
+    "deliverability",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "dnspeek": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^2.0.0"
+  }
+}
