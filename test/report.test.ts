@@ -58,6 +58,35 @@ describe("buildReport", () => {
     expect(spf[0]!.severity).toBe("warning");
   });
 
+  it("falls back to the organizational domain's DMARC record for a subdomain", async () => {
+    const report = await buildReport(
+      "mail.example.com",
+      mockDns({
+        txt: {
+          "mail.example.com": ["v=spf1 -all"],
+          "_dmarc.example.com": ["v=DMARC1; p=reject; rua=mailto:agg@example.com"],
+        },
+        mx: [{ exchange: "mx.example.com", priority: 10 }],
+      }),
+    );
+    expect(report.dmarc?.policy).toBe("reject");
+    expect(report.dmarcInheritedFrom).toBe("example.com");
+    expect(report.issues.filter((i) => i.area === "dmarc" && i.severity === "error")).toEqual([]);
+    expect(report.issues.some((i) => i.area === "dmarc" && /inherited from "example.com"/.test(i.message))).toBe(true);
+    const out = renderText(report, false);
+    expect(out).toContain("(inherited from example.com)");
+  });
+
+  it("still errors when neither the domain nor any parent has DMARC", async () => {
+    const report = await buildReport(
+      "mail.example.com",
+      mockDns({ txt: { "mail.example.com": ["v=spf1 -all"] }, mx: [{ exchange: "mx.example.com", priority: 10 }] }),
+    );
+    expect(report.dmarc).toBeUndefined();
+    expect(report.dmarcInheritedFrom).toBeUndefined();
+    expect(report.issues.some((i) => i.area === "dmarc" && i.severity === "error")).toBe(true);
+  });
+
   it("errors when an explicitly requested selector has no key", async () => {
     const report = await buildReport("example.com", mockDns(GOOD), { selectors: ["nope"] });
     expect(report.issues.some((i) => i.area === "dkim" && i.severity === "error")).toBe(true);

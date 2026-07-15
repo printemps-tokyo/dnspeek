@@ -94,6 +94,11 @@ DMARC (RFC 7489):
 
 - Parses the `_dmarc` record and explains the policy for the domain and its
   subdomains.
+- When a subdomain publishes no record of its own, walks parent domains
+  toward the organizational domain (the RFC 7489 fallback receivers apply)
+  and labels the result `inherited from <domain>`. Without shipping the
+  Public Suffix List, the walk stops at 2 labels (3 for well-known
+  second-level suffixes such as co.jp or co.uk).
 - Flags a missing record, `p=none` (monitoring only), `pct<100`, subdomain
   policies weaker than the domain's, invalid tags, and a missing `rua=`
   (you would receive no reports).

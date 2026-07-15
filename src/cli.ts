@@ -17,7 +17,9 @@ internationalized domain names are converted to punycode.
 
 Explains, in plain language, whether a domain's mail can be spoofed: the SPF
 record and its RFC 7208 lookup count (includes are followed recursively), the
-DMARC policy, and DKIM keys (probing common selectors when none are given).
+DMARC policy (falling back to the organizational domain's record for
+subdomains, as receivers do), and DKIM keys (probing common selectors when
+none are given).
 Also shows MX, NS, A/AAAA, and CAA. The only network traffic is DNS queries
 for the domain you name.
 

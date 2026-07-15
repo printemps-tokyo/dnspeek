@@ -18,7 +18,7 @@ export {
 } from "./spf.js";
 export type { SpfRecord, SpfTerm, SpfTree, SpfNode, TxtFetcher, Qualifier } from "./spf.js";
 
-export { findDmarcRecords, parseDmarc, evaluateDmarc } from "./dmarc.js";
+export { findDmarcRecords, parseDmarc, evaluateDmarc, dmarcFallbackDomains } from "./dmarc.js";
 export type { DmarcRecord } from "./dmarc.js";
 
 export { parseDkim, COMMON_SELECTORS } from "./dkim.js";

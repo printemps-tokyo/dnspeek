@@ -94,3 +94,49 @@ export function evaluateDmarc(txtRecords: string[] | undefined): { record?: Dmar
   const record = parseDmarc(records[0]!);
   return { record, issues: [...issues, ...record.issues] };
 }
+
+/**
+ * Well-known second-level public suffixes, so the fallback walk does not
+ * treat e.g. "co.jp" itself as an organizational domain. A pragmatic inline
+ * list instead of shipping the full Public Suffix List (zero-dependency).
+ */
+const SECOND_LEVEL_SUFFIXES = new Set([
+  "co.jp",
+  "ne.jp",
+  "or.jp",
+  "ac.jp",
+  "go.jp",
+  "ad.jp",
+  "ed.jp",
+  "gr.jp",
+  "lg.jp",
+  "co.uk",
+  "org.uk",
+  "ac.uk",
+  "gov.uk",
+  "com.au",
+  "net.au",
+  "org.au",
+  "co.nz",
+  "com.br",
+  "co.kr",
+  "com.cn",
+  "com.tw",
+]);
+
+/**
+ * Parent domains to try for the RFC 7489 organizational-domain DMARC
+ * fallback, nearest parent first, excluding the domain itself and stopping
+ * before the public suffix. Without a PSL, the heuristic is: an
+ * organizational domain has at least 2 labels, or 3 when it ends in a known
+ * second-level suffix such as co.jp or co.uk. Pure.
+ */
+export function dmarcFallbackDomains(domain: string): string[] {
+  const labels = domain.toLowerCase().replace(/\.$/, "").split(".");
+  const minLabels = SECOND_LEVEL_SUFFIXES.has(labels.slice(-2).join(".")) ? 3 : 2;
+  const parents: string[] = [];
+  for (let i = 1; labels.length - i >= minLabels; i++) {
+    parents.push(labels.slice(i).join("."));
+  }
+  return parents;
+}

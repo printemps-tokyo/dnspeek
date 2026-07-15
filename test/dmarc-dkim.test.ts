@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPairSync } from "node:crypto";
-import { evaluateDmarc, parseDmarc } from "../src/dmarc.js";
+import { dmarcFallbackDomains, evaluateDmarc, parseDmarc } from "../src/dmarc.js";
 import { parseDkim } from "../src/dkim.js";
 
 describe("parseDmarc", () => {
@@ -41,6 +41,28 @@ describe("evaluateDmarc", () => {
   it("errors on multiple DMARC records", () => {
     const r = evaluateDmarc(["v=DMARC1; p=none", "v=DMARC1; p=reject"]);
     expect(r.issues.some((i) => /2 DMARC records/.test(i.message))).toBe(true);
+  });
+});
+
+describe("dmarcFallbackDomains", () => {
+  it("walks parents down to the 2-label organizational domain", () => {
+    expect(dmarcFallbackDomains("mail.example.com")).toEqual(["example.com"]);
+    expect(dmarcFallbackDomains("a.b.example.com")).toEqual(["b.example.com", "example.com"]);
+  });
+
+  it("returns nothing for an organizational domain itself", () => {
+    expect(dmarcFallbackDomains("example.com")).toEqual([]);
+  });
+
+  it("stops before known second-level public suffixes", () => {
+    expect(dmarcFallbackDomains("mail.example.co.jp")).toEqual(["example.co.jp"]);
+    expect(dmarcFallbackDomains("a.b.example.co.uk")).toEqual(["b.example.co.uk", "example.co.uk"]);
+    expect(dmarcFallbackDomains("example.co.jp")).toEqual([]);
+    expect(dmarcFallbackDomains("shop.example.com.au")).toEqual(["example.com.au"]);
+  });
+
+  it("normalizes case and a trailing dot", () => {
+    expect(dmarcFallbackDomains("Mail.Example.COM.")).toEqual(["example.com"]);
   });
 });
 

@@ -42,7 +42,8 @@ export function renderText(report: Report, color: boolean): string {
 
   if (report.dmarc) {
     const dmarcOk = !hasErrors(areaIssues("dmarc"));
-    lines.push(`  DMARC:  ${report.dmarc.raw}`);
+    const inherited = report.dmarcInheritedFrom ? `  (inherited from ${report.dmarcInheritedFrom})` : "";
+    lines.push(`  DMARC:  ${report.dmarc.raw}${inherited}`);
     const sp = report.dmarc.subdomainPolicy ?? "inherit";
     lines.push(`          policy: ${report.dmarc.policy ?? "?"} (subdomains: ${sp})  ${verdict(dmarcOk, color)}`);
   } else {

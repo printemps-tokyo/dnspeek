@@ -1,5 +1,5 @@
 /** Assemble the full domain report from DNS answers and the pure analyzers. */
-import { evaluateDmarc, type DmarcRecord } from "./dmarc.js";
+import { dmarcFallbackDomains, evaluateDmarc, findDmarcRecords, type DmarcRecord } from "./dmarc.js";
 import { parseDkim, COMMON_SELECTORS, type DkimRecord } from "./dkim.js";
 import { findSpfRecords, parseSpf, resolveSpfTree, type SpfRecord, type SpfTree } from "./spf.js";
 import { issue, type Issue } from "./issue.js";
@@ -9,6 +9,11 @@ export interface Report {
   domain: string;
   spf?: { record: SpfRecord; tree: SpfTree };
   dmarc?: DmarcRecord;
+  /**
+   * Set when the applied DMARC record was not published at the domain itself
+   * but inherited from this parent (RFC 7489 organizational-domain fallback).
+   */
+  dmarcInheritedFrom?: string;
   dkim: DkimRecord[];
   /** Selectors that were queried (found or not). */
   probedSelectors: string[];
@@ -63,8 +68,22 @@ export async function buildReport(domain: string, dns: DnsClient, opts: ReportOp
     issues.push(...tree.issues);
   }
 
-  // DMARC.
-  const dmarcResult = evaluateDmarc(dmarcTxt);
+  // DMARC: use the domain's own record, or walk parent domains toward the
+  // organizational domain (RFC 7489 fallback) when the domain has none.
+  let dmarcResult = evaluateDmarc(dmarcTxt);
+  let dmarcInheritedFrom: string | undefined;
+  if (findDmarcRecords(dmarcTxt).length === 0) {
+    for (const parent of dmarcFallbackDomains(domain)) {
+      const parentTxt = await dns.txt(`_dmarc.${parent}`).catch(() => []);
+      if (findDmarcRecords(parentTxt).length === 0) continue;
+      dmarcResult = evaluateDmarc(parentTxt);
+      dmarcInheritedFrom = parent;
+      dmarcResult.issues.push(
+        issue("info", "dmarc", `no record at _dmarc.${domain}; policy inherited from "${parent}" (RFC 7489 organizational-domain fallback)`),
+      );
+      break;
+    }
+  }
   issues.push(...dmarcResult.issues);
 
   // DKIM: query each selector's _domainkey TXT.
@@ -95,6 +114,7 @@ export async function buildReport(domain: string, dns: DnsClient, opts: ReportOp
     domain,
     spf,
     dmarc: dmarcResult.record,
+    dmarcInheritedFrom,
     dkim,
     probedSelectors: selectors,
     records: { a, aaaa, mx, ns, caa },
