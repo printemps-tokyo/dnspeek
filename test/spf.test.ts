@@ -143,4 +143,16 @@ describe("normalizeDomain", () => {
     expect(() => normalizeDomain("not a domain")).toThrow(/does not look like/);
     expect(() => normalizeDomain("localhost")).toThrow();
   });
+
+  it("converts internationalized domain names to punycode", async () => {
+    const { normalizeDomain } = await import("../src/domain.js");
+    expect(normalizeDomain("日本語.jp")).toBe("xn--wgv71a119e.jp");
+    expect(normalizeDomain("https://日本語.jp/path")).toBe("xn--wgv71a119e.jp");
+    expect(normalizeDomain("user@メール.example.com")).toBe("xn--4dkua4c.example.com");
+    expect(normalizeDomain("bücher.de")).toBe("xn--bcher-kva.de");
+    // Already-punycode input passes through unchanged.
+    expect(normalizeDomain("xn--wgv71a119e.jp")).toBe("xn--wgv71a119e.jp");
+    // A single non-ASCII label is still not a usable domain.
+    expect(() => normalizeDomain("日本語")).toThrow(/does not look like/);
+  });
 });

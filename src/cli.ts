@@ -12,6 +12,9 @@ Usage:
   dnspeek <domain>              Check SPF, DMARC, DKIM, and core records
   dnspeek <domain> --selector s1,s2   Check specific DKIM selectors
 
+A URL or email address is accepted and normalized to its domain, and
+internationalized domain names are converted to punycode.
+
 Explains, in plain language, whether a domain's mail can be spoofed: the SPF
 record and its RFC 7208 lookup count (includes are followed recursively), the
 DMARC policy, and DKIM keys (probing common selectors when none are given).

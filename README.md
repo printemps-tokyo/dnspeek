@@ -56,13 +56,14 @@ Then run `dnspeek …` (after `npm link`), or `node dist/cli.js …` from the cl
 ```bash
 dnspeek example.com                    # full email-auth diagnosis
 dnspeek user@example.com               # a URL or email works too
+dnspeek 日本語.jp                       # IDN input is converted to punycode
 dnspeek example.com --selector s1,s2   # check specific DKIM selectors
 dnspeek example.com --json             # machine-readable
 ```
 
 | Option | Description |
 | --- | --- |
-| `<domain>` | Domain to check (a URL or email address is normalized) |
+| `<domain>` | Domain to check (a URL or email address is normalized; internationalized domain names are converted to their punycode form, which is what the output shows) |
 | `--selector <s1,s2>` | DKIM selectors to check (default: probe 14 common ones) |
 | `--server <ip>` | Use this DNS server instead of the system resolver |
 | `--timeout <ms>` | DNS query timeout (default: 5000) |
