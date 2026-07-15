@@ -82,6 +82,43 @@ describe("resolveSpfTree", () => {
     expect(missing.issues.some((i) => /void/.test(i.message))).toBe(true);
   });
 
+  it("treats a shared include on sibling branches as a duplicate, not a loop", async () => {
+    const tree = await resolveSpfTree(
+      "example.com",
+      mockTxt({
+        "example.com": ["v=spf1 include:crm.example include:shop.example -all"],
+        "crm.example": ["v=spf1 include:shared.vendor.example -all"],
+        "shop.example": ["v=spf1 include:shared.vendor.example -all"],
+        "shared.vendor.example": ["v=spf1 ip4:192.0.2.0/24 -all"],
+      }),
+    );
+    expect(tree.issues.some((i) => /loop/.test(i.message))).toBe(false);
+    expect(tree.issues.filter((i) => i.severity === "error")).toEqual([]);
+    const dup = tree.issues.find((i) => /duplicate include/.test(i.message));
+    expect(dup?.severity).toBe("warning");
+    // Both include lookups are still charged against the RFC 7208 budget:
+    // crm(1) + shop(1) + shared(1) + shared again(1) = 4.
+    expect(tree.totalLookups).toBe(4);
+  });
+
+  it("still reports a self-include and a deeper ancestor loop as errors", async () => {
+    const self = await resolveSpfTree(
+      "a.example",
+      mockTxt({ "a.example": ["v=spf1 include:a.example -all"] }),
+    );
+    expect(self.issues.some((i) => i.severity === "error" && /loop/.test(i.message))).toBe(true);
+
+    const deep = await resolveSpfTree(
+      "a.example",
+      mockTxt({
+        "a.example": ["v=spf1 include:b.example -all"],
+        "b.example": ["v=spf1 include:c.example -all"],
+        "c.example": ["v=spf1 include:b.example -all"],
+      }),
+    );
+    expect(deep.issues.some((i) => i.severity === "error" && /loop/.test(i.message))).toBe(true);
+  });
+
   it("follows redirect= targets", async () => {
     const tree = await resolveSpfTree(
       "example.com",

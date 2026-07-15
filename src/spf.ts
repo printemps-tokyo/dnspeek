@@ -134,19 +134,28 @@ export type TxtFetcher = (domain: string) => Promise<string[]>;
  */
 export async function resolveSpfTree(domain: string, fetchTxt: TxtFetcher): Promise<SpfTree> {
   const issues: Issue[] = [];
-  const seen = new Set<string>();
+  /** Every domain resolved anywhere in the tree, for duplicate detection. */
+  const visited = new Set<string>();
   let total = 0;
 
-  const walk = async (name: string, viaLookup: boolean, depth: number): Promise<SpfNode> => {
+  const walk = async (name: string, viaLookup: boolean, path: readonly string[]): Promise<SpfNode> => {
     const node: SpfNode = { domain: name, lookups: 0, children: [], issues: [] };
     if (viaLookup) total += 1;
 
-    if (seen.has(name.toLowerCase())) {
-      node.issues.push(issue("error", "spf", `include loop: "${name}" is referenced again`));
+    const key = name.toLowerCase();
+    // A real loop is a domain including one of its own ancestors. A domain
+    // reached again on a sibling branch (e.g. a shared vendor include) is
+    // legal; it just spends another lookup, so flag it without recursing.
+    if (path.includes(key)) {
+      node.issues.push(issue("error", "spf", `include loop: "${name}" includes itself via ${path.join(" -> ")}`));
       return node;
     }
-    seen.add(name.toLowerCase());
-    if (depth > 10) {
+    if (visited.has(key)) {
+      node.issues.push(issue("warning", "spf", `duplicate include of "${name}" wastes lookups`));
+      return node;
+    }
+    visited.add(key);
+    if (path.length > 10) {
       node.issues.push(issue("error", "spf", `include chain deeper than 10 at "${name}"`));
       return node;
     }
@@ -174,7 +183,7 @@ export async function resolveSpfTree(domain: string, fetchTxt: TxtFetcher): Prom
     for (const term of node.record.terms) {
       if (!COUNTED.has(term.name)) continue;
       if (term.name === "include" || term.name === "redirect") {
-        node.children.push(await walk(term.value ?? "", true, depth + 1));
+        node.children.push(await walk(term.value ?? "", true, [...path, key]));
       } else {
         total += 1; // a, mx, ptr, exists cost a lookup but are not followed.
         node.lookups += 1;
@@ -183,7 +192,7 @@ export async function resolveSpfTree(domain: string, fetchTxt: TxtFetcher): Prom
     return node;
   };
 
-  const root = await walk(domain, false, 0);
+  const root = await walk(domain, false, []);
   if (total > LOOKUP_LIMIT) {
     issues.push(
       issue(

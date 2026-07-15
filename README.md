@@ -85,6 +85,9 @@ SPF (RFC 7208):
   silently breaks SPF as a domain accumulates SaaS senders.
 - Flags `+all` (anyone may send), `?all`, deprecated `ptr`, terms after `all`,
   missing terminal `all`, multiple SPF records, and void include targets.
+- Distinguishes real include loops (a domain including one of its ancestors,
+  an error) from the same vendor include appearing on two branches, which is
+  legal and only reported as a warning because it wastes lookups.
 
 DMARC (RFC 7489):
 
