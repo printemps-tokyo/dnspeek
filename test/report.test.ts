@@ -77,6 +77,43 @@ describe("buildReport", () => {
     expect(out).toContain("(inherited from example.com)");
   });
 
+  it("skips an intermediate parent's DMARC and applies the organizational domain's", async () => {
+    // RFC 7489 receivers query only the organizational domain, so the
+    // p=none at b.example.com must not shadow the p=reject at example.com.
+    const report = await buildReport(
+      "a.b.example.com",
+      mockDns({
+        txt: {
+          "a.b.example.com": ["v=spf1 -all"],
+          "_dmarc.b.example.com": ["v=DMARC1; p=none; rua=mailto:agg@example.com"],
+          "_dmarc.example.com": ["v=DMARC1; p=reject; rua=mailto:agg@example.com"],
+        },
+        mx: [{ exchange: "mx.example.com", priority: 10 }],
+      }),
+    );
+    expect(report.dmarc?.policy).toBe("reject");
+    expect(report.dmarcInheritedFrom).toBe("example.com");
+    expect(report.issues.some((i) => i.area === "dmarc" && /inherited from "example.com"/.test(i.message))).toBe(true);
+  });
+
+  it("reports no DMARC when a record exists only at an intermediate parent", async () => {
+    // Receivers never consult intermediate parents, so this domain has no
+    // effective DMARC at all despite the record at b.example.com.
+    const report = await buildReport(
+      "a.b.example.com",
+      mockDns({
+        txt: {
+          "a.b.example.com": ["v=spf1 -all"],
+          "_dmarc.b.example.com": ["v=DMARC1; p=reject; rua=mailto:agg@example.com"],
+        },
+        mx: [{ exchange: "mx.example.com", priority: 10 }],
+      }),
+    );
+    expect(report.dmarc).toBeUndefined();
+    expect(report.dmarcInheritedFrom).toBeUndefined();
+    expect(report.issues.some((i) => i.area === "dmarc" && i.severity === "error")).toBe(true);
+  });
+
   it("still errors when neither the domain nor any parent has DMARC", async () => {
     const report = await buildReport(
       "mail.example.com",

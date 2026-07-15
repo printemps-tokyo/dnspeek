@@ -136,6 +136,13 @@ export async function resolveSpfTree(domain: string, fetchTxt: TxtFetcher): Prom
   const issues: Issue[] = [];
   /** Every domain resolved anywhere in the tree, for duplicate detection. */
   const visited = new Set<string>();
+  /**
+   * Lookups spent inside each domain's subtree on its first visit (its own
+   * a/mx/ptr/exists terms plus everything under its includes/redirects, not
+   * the lookup that reached it). Real resolvers do not deduplicate, so a
+   * duplicate include re-spends this whole amount.
+   */
+  const subtreeLookups = new Map<string, number>();
   let total = 0;
 
   const walk = async (name: string, viaLookup: boolean, path: readonly string[]): Promise<SpfNode> => {
@@ -145,51 +152,60 @@ export async function resolveSpfTree(domain: string, fetchTxt: TxtFetcher): Prom
     const key = name.toLowerCase();
     // A real loop is a domain including one of its own ancestors. A domain
     // reached again on a sibling branch (e.g. a shared vendor include) is
-    // legal; it just spends another lookup, so flag it without recursing.
+    // legal; it just spends its lookups again, so charge the recorded
+    // subtree cost and flag it without recursing.
     if (path.includes(key)) {
       node.issues.push(issue("error", "spf", `include loop: "${name}" includes itself via ${path.join(" -> ")}`));
       return node;
     }
     if (visited.has(key)) {
       node.issues.push(issue("warning", "spf", `duplicate include of "${name}" wastes lookups`));
+      // Real resolvers re-walk the whole subtree, so charge its recorded
+      // lookup cost against the budget without recursing again.
+      total += subtreeLookups.get(key) ?? 0;
       return node;
     }
     visited.add(key);
-    if (path.length > 10) {
-      node.issues.push(issue("error", "spf", `include chain deeper than 10 at "${name}"`));
-      return node;
-    }
-
-    let txt: string[];
+    const totalBeforeSubtree = total;
     try {
-      txt = await fetchTxt(name);
-    } catch {
-      node.issues.push(issue("warning", "spf", `could not resolve TXT for "${name}"`));
-      return node;
-    }
-    const records = findSpfRecords(txt);
-    if (records.length === 0) {
-      if (viaLookup) {
-        node.issues.push(issue("error", "spf", `"${name}" has no SPF record (include/redirect target is void)`));
+      if (path.length > 10) {
+        node.issues.push(issue("error", "spf", `include chain deeper than 10 at "${name}"`));
+        return node;
       }
-      return node;
-    }
-    if (records.length > 1) {
-      node.issues.push(issue("error", "spf", `"${name}" publishes ${records.length} SPF records (receivers treat this as permerror)`));
-    }
-    node.record = parseSpf(records[0]!);
-    node.issues.push(...node.record.issues);
 
-    for (const term of node.record.terms) {
-      if (!COUNTED.has(term.name)) continue;
-      if (term.name === "include" || term.name === "redirect") {
-        node.children.push(await walk(term.value ?? "", true, [...path, key]));
-      } else {
-        total += 1; // a, mx, ptr, exists cost a lookup but are not followed.
-        node.lookups += 1;
+      let txt: string[];
+      try {
+        txt = await fetchTxt(name);
+      } catch {
+        node.issues.push(issue("warning", "spf", `could not resolve TXT for "${name}"`));
+        return node;
       }
+      const records = findSpfRecords(txt);
+      if (records.length === 0) {
+        if (viaLookup) {
+          node.issues.push(issue("error", "spf", `"${name}" has no SPF record (include/redirect target is void)`));
+        }
+        return node;
+      }
+      if (records.length > 1) {
+        node.issues.push(issue("error", "spf", `"${name}" publishes ${records.length} SPF records (receivers treat this as permerror)`));
+      }
+      node.record = parseSpf(records[0]!);
+      node.issues.push(...node.record.issues);
+
+      for (const term of node.record.terms) {
+        if (!COUNTED.has(term.name)) continue;
+        if (term.name === "include" || term.name === "redirect") {
+          node.children.push(await walk(term.value ?? "", true, [...path, key]));
+        } else {
+          total += 1; // a, mx, ptr, exists cost a lookup but are not followed.
+          node.lookups += 1;
+        }
+      }
+      return node;
+    } finally {
+      subtreeLookups.set(key, total - totalBeforeSubtree);
     }
-    return node;
   };
 
   const root = await walk(domain, false, []);

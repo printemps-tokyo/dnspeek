@@ -68,20 +68,24 @@ export async function buildReport(domain: string, dns: DnsClient, opts: ReportOp
     issues.push(...tree.issues);
   }
 
-  // DMARC: use the domain's own record, or walk parent domains toward the
-  // organizational domain (RFC 7489 fallback) when the domain has none.
+  // DMARC: use the domain's own record, or fall back to the organizational
+  // domain. RFC 7489 receivers query only the organizational domain — never
+  // intermediate parents — so a record at e.g. b.example.com does not apply
+  // to a.b.example.com, and adopting it here would misreport the policy that
+  // receivers actually enforce.
   let dmarcResult = evaluateDmarc(dmarcTxt);
   let dmarcInheritedFrom: string | undefined;
   if (findDmarcRecords(dmarcTxt).length === 0) {
-    for (const parent of dmarcFallbackDomains(domain)) {
-      const parentTxt = await dns.txt(`_dmarc.${parent}`).catch(() => []);
-      if (findDmarcRecords(parentTxt).length === 0) continue;
-      dmarcResult = evaluateDmarc(parentTxt);
-      dmarcInheritedFrom = parent;
-      dmarcResult.issues.push(
-        issue("info", "dmarc", `no record at _dmarc.${domain}; policy inherited from "${parent}" (RFC 7489 organizational-domain fallback)`),
-      );
-      break;
+    const orgDomain = dmarcFallbackDomains(domain).at(-1);
+    if (orgDomain !== undefined) {
+      const orgTxt = await dns.txt(`_dmarc.${orgDomain}`).catch(() => []);
+      if (findDmarcRecords(orgTxt).length > 0) {
+        dmarcResult = evaluateDmarc(orgTxt);
+        dmarcInheritedFrom = orgDomain;
+        dmarcResult.issues.push(
+          issue("info", "dmarc", `no record at _dmarc.${domain}; policy inherited from "${orgDomain}" (RFC 7489 organizational-domain fallback)`),
+        );
+      }
     }
   }
   issues.push(...dmarcResult.issues);

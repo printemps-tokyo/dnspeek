@@ -101,6 +101,39 @@ describe("resolveSpfTree", () => {
     expect(tree.totalLookups).toBe(4);
   });
 
+  it("charges a duplicate include's subtree lookups against the budget", async () => {
+    const tree = await resolveSpfTree(
+      "example.com",
+      mockTxt({
+        "example.com": ["v=spf1 include:a.example include:b.example -all"],
+        "a.example": ["v=spf1 include:shared.example -all"],
+        "b.example": ["v=spf1 include:shared.example -all"],
+        "shared.example": ["v=spf1 include:x.example -all"],
+        "x.example": ["v=spf1 ip4:192.0.2.1 -all"],
+      }),
+    );
+    // A real resolver re-walks the duplicate subtree:
+    // a(1) + shared(1) + x(1) + b(1) + shared again(1) + x again(1) = 6.
+    expect(tree.totalLookups).toBe(6);
+    expect(tree.issues.some((i) => /duplicate include/.test(i.message))).toBe(true);
+    expect(tree.issues.filter((i) => i.severity === "error")).toEqual([]);
+  });
+
+  it("errors when duplicate subtree lookups push the true total past 10", async () => {
+    const tree = await resolveSpfTree(
+      "example.com",
+      mockTxt({
+        "example.com": ["v=spf1 include:a.example include:b.example -all"],
+        "a.example": ["v=spf1 include:shared.example -all"],
+        "b.example": ["v=spf1 include:shared.example -all"],
+        "shared.example": ["v=spf1 a mx ptr exists:%{i}.chk.example -all"],
+      }),
+    );
+    // a(1) + shared(1) + 4 terms + b(1) + shared again(1) + 4 terms = 12.
+    expect(tree.totalLookups).toBe(12);
+    expect(tree.issues.some((i) => i.severity === "error" && /exceed/.test(i.message))).toBe(true);
+  });
+
   it("still reports a self-include and a deeper ancestor loop as errors", async () => {
     const self = await resolveSpfTree(
       "a.example",

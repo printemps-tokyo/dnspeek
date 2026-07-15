@@ -125,11 +125,13 @@ const SECOND_LEVEL_SUFFIXES = new Set([
 ]);
 
 /**
- * Parent domains to try for the RFC 7489 organizational-domain DMARC
- * fallback, nearest parent first, excluding the domain itself and stopping
- * before the public suffix. Without a PSL, the heuristic is: an
- * organizational domain has at least 2 labels, or 3 when it ends in a known
- * second-level suffix such as co.jp or co.uk. Pure.
+ * Parent domains of `domain`, nearest parent first, excluding the domain
+ * itself and stopping before the public suffix. The LAST element is the
+ * heuristic organizational domain — the only name RFC 7489 receivers query
+ * for the DMARC fallback (intermediate parents are never consulted). Without
+ * a PSL, the heuristic is: an organizational domain has at least 2 labels,
+ * or 3 when it ends in a known second-level suffix such as co.jp or co.uk.
+ * Pure.
  */
 export function dmarcFallbackDomains(domain: string): string[] {
   const labels = domain.toLowerCase().replace(/\.$/, "").split(".");
