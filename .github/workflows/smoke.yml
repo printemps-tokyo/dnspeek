@@ -1,0 +1,29 @@
+name: Smoke
+
+# The unit tests stub the resolver. This checks the built CLI against real
+# DNS, by hand or once a week. The exit code depends on the domain's own
+# records, so the checks look at what was found rather than at the exit code.
+on:
+  schedule:
+    - cron: "29 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Records, SPF and DMARC are found for a real domain
+        run: |
+          node dist/cli.js github.com --json > out.json || true
+          jq -e '(.records.mx | length) > 0 and (.records.ns | length) > 0' out.json
+          jq -e '(.spf.record.raw | startswith("v=spf1")) and (.dmarc.policy | type) == "string"' out.json
