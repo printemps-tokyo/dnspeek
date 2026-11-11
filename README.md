@@ -36,7 +36,7 @@ local and dependency-free.
 
 ## Requirements
 
-- Node.js >= 20
+- Node.js >= 22
 
 ## Install
 
