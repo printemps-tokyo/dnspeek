@@ -23,7 +23,7 @@
     "cli"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "bin": {
     "dnspeek": "dist/cli.js"
