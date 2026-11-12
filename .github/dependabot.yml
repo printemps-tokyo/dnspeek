@@ -7,6 +7,15 @@ updates:
     groups:
       all:
         patterns: ["*"]
+    ignore:
+      # @types/node stays on the oldest Node line the tool supports, so a
+      # newer Node API fails the typecheck instead of failing at run time.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # typescript-eslint 8 supports TypeScript below 6.1; lift this when it
+      # supports newer ones.
+      - dependency-name: "typescript"
+        versions: [">=6.1.0"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
