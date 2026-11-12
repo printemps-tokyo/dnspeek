@@ -59,6 +59,8 @@ dnspeek user@example.com               # a URL or email works too
 dnspeek 日本語.jp                       # IDN input is converted to punycode
 dnspeek example.com --selector s1,s2   # check specific DKIM selectors
 dnspeek example.com --json             # machine-readable
+dnspeek example.com --http             # also fetch and check the MTA-STS policy
+dnspeek example.com --server 1.1.1.1   # DNSSEC through a validating resolver
 ```
 
 | Option | Description |
@@ -67,6 +69,8 @@ dnspeek example.com --json             # machine-readable
 | `--selector <s1,s2>` | DKIM selectors to check (default: probe 14 common ones) |
 | `--server <ip>` | Use this DNS server instead of the system resolver |
 | `--timeout <ms>` | DNS query timeout (default: 5000) |
+| `--http` | Also fetch the MTA-STS policy over HTTPS and check it against the MX hosts |
+| `--no-dnssec` | Skip the DNSSEC check |
 | `--json` | Output JSON instead of text |
 | `--no-color` | Disable ANSI colors |
 
@@ -110,8 +114,34 @@ DKIM (RFC 6376):
 - Reads the key type and RSA size, and flags revoked (`p=`), weak (<2048 bit),
   and test-mode (`t=y`) keys.
 
+MTA-STS (RFC 8461), TLS-RPT (RFC 8460) and BIMI:
+
+- `_mta-sts` TXT: one `v=STSv1` record with a valid `id=`. With `--http`, the
+  policy at `https://mta-sts.<domain>/.well-known/mta-sts.txt` is fetched
+  (redirects refused, as the RFC requires) and checked: `version`, `mode`
+  (`enforce`, `testing`, `none`), `max_age` (at most 31557600), and `mx:`
+  patterns that cover every MX host (a `*.` wildcard covers one label). An MX
+  host the policy misses is an error under `enforce`, where mail to it fails.
+- `_smtp._tls` TXT: one `v=TLSRPTv1` record whose `rua=` addresses are
+  `mailto:` or `https:` URIs; MTA-STS without it is noted, since TLS failures
+  then go unreported.
+- `default._bimi` TXT: the logo (`l=`, an HTTPS SVG) and mark certificate
+  (`a=`). Mailbox providers show a BIMI logo only for mail under an enforcing
+  DMARC policy, so `p=none` (or `pct<100`) is flagged.
+
+DNSSEC:
+
+- node:dns cannot ask about DNSSEC, so dnspeek sends two queries of its own
+  (DS and SOA, with the DNSSEC OK bit) to the resolver (`--server`, or the
+  system's first one) and reads the answers: a DS record at the parent means
+  the zone is signed, and the AD bit means the resolver validated it. A signed
+  zone without AD usually means the resolver does not validate (home routers
+  often do not; try `--server 1.1.1.1`), and SERVFAIL from a validating
+  resolver means validation failed.
+
 Plus the core records in one view: MX (sorted by priority), NS, A/AAAA, and
-CAA (with a note when any CA may issue certificates).
+CAA (with a note when any CA may issue certificates). The only network traffic
+is DNS queries, and the MTA-STS policy file with `--http`.
 
 ## Programmatic API
 

@@ -60,6 +60,24 @@ export function renderText(report: Report, color: boolean): string {
   } else {
     lines.push(`  DKIM:   no key found (probed ${report.probedSelectors.length} selectors)`);
   }
+  lines.push("");
+  head("Transport security");
+  if (report.mtaSts) {
+    const p = report.mtaSts.policy;
+    const policy = p ? `  policy: mode ${p.mode ?? "?"}, max_age ${p.maxAge ?? "?"}, mx ${p.mx.join(" ") || "-"}` : "  (policy not fetched; add --http)";
+    lines.push(`  MTA-STS: id=${report.mtaSts.record.id ?? "?"}${policy}`);
+  } else {
+    lines.push("  MTA-STS: none");
+  }
+  lines.push(report.tlsRpt ? `  TLS-RPT: ${report.tlsRpt.rua.join(", ")}` : "  TLS-RPT: none");
+  if (report.bimi) {
+    lines.push(`  BIMI:    ${report.bimi.logo ?? "(no logo)"}${report.bimi.authority ? `  certificate ${report.bimi.authority}` : ""}`);
+  }
+  if (report.dnssec) {
+    const d = report.dnssec;
+    const state = d.servfail ? "SERVFAIL" : !d.signed ? "not signed" : d.validated ? "signed, validated (AD)" : "signed, not validated by this resolver";
+    lines.push(`  DNSSEC:  ${state}  (resolver ${d.resolver})`);
+  }
 
   lines.push("");
   head("Records");

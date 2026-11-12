@@ -1,5 +1,17 @@
 /** Assemble the full domain report from DNS answers and the pure analyzers. */
 import { dmarcFallbackDomains, evaluateDmarc, findDmarcRecords, type DmarcRecord } from "./dmarc.js";
+import {
+  evaluateBimi,
+  evaluateMtaStsTxt,
+  evaluateTlsRpt,
+  parseMtaStsPolicy,
+  uncoveredMx,
+  type BimiRecord,
+  type MtaStsPolicy,
+  type MtaStsRecord,
+  type TlsRptRecord,
+} from "./transport.js";
+import type { DnssecStatus } from "./dnssec.js";
 import { parseDkim, COMMON_SELECTORS, type DkimRecord } from "./dkim.js";
 import { findSpfRecords, parseSpf, resolveSpfTree, type SpfRecord, type SpfTree } from "./spf.js";
 import { issue, type Issue } from "./issue.js";
@@ -24,12 +36,24 @@ export interface Report {
     ns: string[];
     caa: string[];
   };
+  /** MTA-STS (RFC 8461): the TXT record, and the policy when fetched. */
+  mtaSts?: { record: MtaStsRecord; policy?: MtaStsPolicy };
+  /** SMTP TLS Reporting (RFC 8460). */
+  tlsRpt?: TlsRptRecord;
+  /** BIMI (default selector). */
+  bimi?: BimiRecord;
+  /** DNSSEC as the resolver sees it. */
+  dnssec?: DnssecStatus;
   issues: Issue[];
 }
 
 export interface ReportOptions {
   /** DKIM selectors to check; defaults to a common-provider probe list. */
   selectors?: string[];
+  /** Fetch a URL's text (for the MTA-STS policy); without it the policy is not fetched. */
+  fetchText?: (url: string) => Promise<string>;
+  /** Check DNSSEC through this probe; without it DNSSEC is not checked. */
+  dnssec?: (domain: string) => Promise<DnssecStatus>;
 }
 
 /** Query everything about a domain and run the analyzers. */
@@ -114,8 +138,70 @@ export async function buildReport(domain: string, dns: DnsClient, opts: ReportOp
     );
   }
 
+  // Transport security and brand records.
+  const [stsTxt, rptTxt, bimiTxt] = await Promise.all([
+    dns.txt(`_mta-sts.${domain}`).catch(() => []),
+    dns.txt(`_smtp._tls.${domain}`).catch(() => []),
+    dns.txt(`default._bimi.${domain}`).catch(() => []),
+  ]);
+  let mtaSts: Report["mtaSts"];
+  const sts = evaluateMtaStsTxt(stsTxt);
+  issues.push(...sts.issues);
+  if (sts.record) {
+    mtaSts = { record: sts.record };
+    if (opts.fetchText) {
+      const url = `https://mta-sts.${domain}/.well-known/mta-sts.txt`;
+      try {
+        const parsed = parseMtaStsPolicy(await opts.fetchText(url));
+        mtaSts.policy = parsed.policy;
+        issues.push(...parsed.issues);
+        const missing = uncoveredMx(mx.map((m) => m.exchange), parsed.policy);
+        if (missing.length > 0 && parsed.policy.mode !== "none") {
+          issues.push(
+            issue(
+              parsed.policy.mode === "enforce" ? "error" : "warning",
+              "mta-sts",
+              `MX host(s) not covered by the policy's mx: patterns: ${missing.join(", ")}${parsed.policy.mode === "enforce" ? " (mail to them will fail)" : ""}`,
+            ),
+          );
+        }
+      } catch (err) {
+        issues.push(issue("error", "mta-sts", `cannot fetch the policy at ${url}: ${(err as Error).message}`));
+      }
+    }
+  } else if (mx.length > 0) {
+    issues.push(issue("info", "mta-sts", "no MTA-STS record: senders cannot require TLS for mail to this domain"));
+  }
+  const rpt = evaluateTlsRpt(rptTxt);
+  issues.push(...rpt.issues);
+  if (!rpt.record && sts.record) {
+    issues.push(issue("info", "tls-rpt", "MTA-STS without TLS-RPT: you will not hear about delivery TLS failures"));
+  }
+  const bimi = evaluateBimi(bimiTxt, dmarcResult.record ? { policy: dmarcResult.record.policy, pct: dmarcResult.record.tags.pct } : undefined);
+  issues.push(...bimi.issues);
+
+  let dnssec: DnssecStatus | undefined;
+  if (opts.dnssec) {
+    try {
+      dnssec = await opts.dnssec(domain);
+      if (dnssec.servfail) {
+        issues.push(issue("error", "dnssec", `${dnssec.resolver} answered SERVFAIL; a validating resolver does that when DNSSEC validation fails`));
+      } else if (!dnssec.signed) {
+        issues.push(issue("info", "dnssec", "not signed with DNSSEC (no DS record at the parent)"));
+      } else if (!dnssec.validated) {
+        issues.push(issue("warning", "dnssec", `signed (DS at the parent), but ${dnssec.resolver} did not mark the answers validated; it may not validate DNSSEC (try --server 1.1.1.1)`));
+      }
+    } catch (err) {
+      issues.push(issue("info", "dnssec", `DNSSEC not checked: ${(err as Error).message}`));
+    }
+  }
+
   return {
     domain,
+    ...(mtaSts ? { mtaSts } : {}),
+    ...(rpt.record ? { tlsRpt: rpt.record } : {}),
+    ...(bimi.record ? { bimi: bimi.record } : {}),
+    ...(dnssec ? { dnssec } : {}),
     spf,
     dmarc: dmarcResult.record,
     dmarcInheritedFrom,

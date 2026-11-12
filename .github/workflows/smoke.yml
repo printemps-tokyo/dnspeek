@@ -27,3 +27,11 @@ jobs:
           node dist/cli.js github.com --json > out.json || true
           jq -e '(.records.mx | length) > 0 and (.records.ns | length) > 0' out.json
           jq -e '(.spf.record.raw | startswith("v=spf1")) and (.dmarc.policy | type) == "string"' out.json
+      - name: MTA-STS and TLS-RPT of a domain that publishes them
+        run: |
+          node dist/cli.js gmail.com --http --json > mail.json || true
+          jq -e '.mtaSts.policy.mode == "enforce" and (.mtaSts.policy.mx | length) > 0 and (.tlsRpt.rua | length) > 0' mail.json
+      - name: DNSSEC of a signed domain, through a validating resolver
+        run: |
+          node dist/cli.js ietf.org --server 1.1.1.1 --json > sec.json || true
+          jq -e '.dnssec.signed == true and .dnssec.validated == true' sec.json

@@ -32,3 +32,16 @@ export type { Report, ReportOptions } from "./report.js";
 
 export { normalizeDomain } from "./domain.js";
 export { renderText, renderJson } from "./render.js";
+export {
+  evaluateBimi,
+  evaluateMtaStsTxt,
+  evaluateTlsRpt,
+  mxMatches,
+  parseMtaStsPolicy,
+  uncoveredMx,
+  type BimiRecord,
+  type MtaStsPolicy,
+  type MtaStsRecord,
+  type TlsRptRecord,
+} from "./transport.js";
+export { buildQuery, parseAnswer, dnssecStatus, queryUdp, type DnssecStatus, type DnsAnswer } from "./dnssec.js";

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { getServers } from "node:dns";
+import { dnssecStatus } from "./dnssec.js";
 import { normalizeDomain } from "./domain.js";
 import { makeDnsClient } from "./dns.js";
 import { buildReport } from "./report.js";
@@ -20,13 +22,18 @@ record and its RFC 7208 lookup count (includes are followed recursively), the
 DMARC policy (falling back to the organizational domain's record for
 subdomains, as receivers do), and DKIM keys (probing common selectors when
 none are given).
-Also shows MX, NS, A/AAAA, and CAA. The only network traffic is DNS queries
-for the domain you name.
+Also checks MTA-STS, TLS-RPT, BIMI and DNSSEC, and shows MX, NS, A/AAAA, and
+CAA. The only network traffic is DNS queries for the domain you name (and,
+with --http, its MTA-STS policy file).
 
 Options:
   --selector <s1,s2>  DKIM selectors to check (default: probe common ones)
   --server <ip>       Use this DNS server instead of the system resolver
   --timeout <ms>      DNS query timeout (default: 5000)
+  --http              Also fetch the MTA-STS policy over HTTPS and check it
+                      against the MX hosts (the only non-DNS traffic)
+  --no-dnssec         Skip the DNSSEC check (a DS and SOA query with the
+                      DNSSEC OK bit, sent to the resolver)
   --json              Output JSON instead of text
   --no-color          Disable ANSI colors
   -h, --help          Show this help
@@ -74,6 +81,8 @@ async function main(): Promise<number> {
       options: {
         selector: { type: "string" },
         server: { type: "string" },
+        http: { type: "boolean", default: false },
+        "no-dnssec": { type: "boolean", default: false },
         timeout: { type: "string" },
         json: { type: "boolean", default: false },
         "no-color": { type: "boolean", default: false },
@@ -99,7 +108,13 @@ async function main(): Promise<number> {
     const selectors = values.selector
       ? values.selector.split(",").map((s) => s.trim()).filter(Boolean)
       : undefined;
-    report = await buildReport(domain, dns, { selectors });
+    const timeoutMs = values.timeout ? Number(values.timeout) : 5000;
+    const resolver = values.server ?? getServers()[0];
+    report = await buildReport(domain, dns, {
+      selectors,
+      ...(values.http ? { fetchText: (url: string) => fetchPolicy(url, timeoutMs) } : {}),
+      ...(!values["no-dnssec"] && resolver ? { dnssec: (d: string) => dnssecStatus(d, resolver, timeoutMs) } : {}),
+    });
   } catch (err) {
     process.stderr.write(`error: ${(err as Error).message}\n`);
     return 1;
@@ -119,3 +134,13 @@ main()
     process.stderr.write(`error: ${(err as Error).message}\n`);
     process.exitCode = 1;
   });
+
+/** GET a small text file over HTTPS (the MTA-STS policy), refusing redirects as RFC 8461 3.3 requires. */
+async function fetchPolicy(url: string, timeoutMs: number): Promise<string> {
+  const res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(Math.max(timeoutMs, 10_000)) });
+  if (res.status >= 300 && res.status < 400) throw new Error(`HTTP ${res.status} redirect (MTA-STS policies must not redirect)`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  if (text.length > 64 * 1024) throw new Error("the policy is larger than 64 KiB");
+  return text;
+}
